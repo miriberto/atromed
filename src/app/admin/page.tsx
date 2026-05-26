@@ -3,7 +3,7 @@
 import { supabase } from "@/lib/supabase";
 import { useEffect, useState } from "react";
 
-const ADMIN_PASSWORD = "12345";
+const ADMIN_PASSWORD = "250425";
 
 type Product = {
   id: string;
