@@ -3,7 +3,7 @@
 import { supabase } from "@/lib/supabase";
 import { useEffect, useState } from "react";
 
-const ADMIN_PASSWORD = "250425";
+const ADMIN_PASSWORD = "12345";
 
 type Product = {
   id: string;
@@ -13,6 +13,7 @@ type Product = {
   stock: string;
   amount: number;
   images: string[];
+  sort_order: number;
 };
 
 export default function AdminPage() {
@@ -37,6 +38,7 @@ export default function AdminPage() {
     const { data } = await supabase
       .from("products")
       .select("*")
+      .order("sort_order", { ascending: true })
       .order("created_at", { ascending: false });
 
     if (data) setProducts(data);
@@ -79,6 +81,11 @@ export default function AdminPage() {
     const newImages = await uploadImages();
     const allImages = [...form.images, ...newImages];
 
+    const nextSortOrder =
+      products.length > 0
+        ? Math.max(...products.map((product) => product.sort_order || 0)) + 1
+        : 1;
+
     const productData = {
       name: form.name,
       category: form.category,
@@ -86,6 +93,7 @@ export default function AdminPage() {
       stock: form.stock,
       amount: form.amount,
       images: allImages,
+      ...(!editingId ? { sort_order: nextSortOrder } : {}),
     };
 
     const { error } = editingId
@@ -132,6 +140,42 @@ export default function AdminPage() {
     });
   }
 
+  async function moveProduct(index: number, direction: "up" | "down") {
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+
+    if (targetIndex < 0 || targetIndex >= products.length) return;
+
+    const currentProduct = products[index];
+    const targetProduct = products[targetIndex];
+
+    const currentOrder = currentProduct.sort_order || index + 1;
+    const targetOrder = targetProduct.sort_order || targetIndex + 1;
+
+    const newProducts = [...products];
+    newProducts[index] = {
+      ...targetProduct,
+      sort_order: currentOrder,
+    };
+    newProducts[targetIndex] = {
+      ...currentProduct,
+      sort_order: targetOrder,
+    };
+
+    setProducts(newProducts);
+
+    await supabase
+      .from("products")
+      .update({ sort_order: targetOrder })
+      .eq("id", currentProduct.id);
+
+    await supabase
+      .from("products")
+      .update({ sort_order: currentOrder })
+      .eq("id", targetProduct.id);
+
+    getProducts();
+  }
+
   async function deleteProduct(product: Product) {
     const confirmDelete = confirm(
       `"${product.name}" ürünü ve fotoğrafları silinsin mi?`
@@ -146,13 +190,7 @@ export default function AdminPage() {
 
       if (!filePath) continue;
 
-      const { error } = await supabase.storage
-        .from("product-images")
-        .remove([filePath]);
-
-      if (error) {
-        console.error("Fotoğraf silinemedi:", error.message);
-      }
+      await supabase.storage.from("product-images").remove([filePath]);
     }
 
     const { error } = await supabase
@@ -169,31 +207,31 @@ export default function AdminPage() {
   }
 
   async function removeExistingImage(index: number) {
-  const imageUrl = form.images[index];
+    const imageUrl = form.images[index];
 
-  const confirmDelete = confirm("Bu fotoğraf tamamen silinsin mi?");
-  if (!confirmDelete) return;
+    const confirmDelete = confirm("Bu fotoğraf tamamen silinsin mi?");
+    if (!confirmDelete) return;
 
-  const filePath = imageUrl.includes("/product-images/")
-    ? decodeURIComponent(imageUrl.split("/product-images/")[1])
-    : "";
+    const filePath = imageUrl.includes("/product-images/")
+      ? decodeURIComponent(imageUrl.split("/product-images/")[1])
+      : "";
 
-  if (filePath) {
-    const { error } = await supabase.storage
-      .from("product-images")
-      .remove([filePath]);
+    if (filePath) {
+      const { error } = await supabase.storage
+        .from("product-images")
+        .remove([filePath]);
 
-    if (error) {
-      alert("Fotoğraf Storage'dan silinemedi: " + error.message);
-      return;
+      if (error) {
+        alert("Fotoğraf Storage'dan silinemedi: " + error.message);
+        return;
+      }
     }
-  }
 
-  setForm({
-    ...form,
-    images: form.images.filter((_, i) => i !== index),
-  });
-}
+    setForm({
+      ...form,
+      images: form.images.filter((_, i) => i !== index),
+    });
+  }
 
   function cancelEdit() {
     setEditingId(null);
@@ -251,7 +289,7 @@ export default function AdminPage() {
           </h1>
 
           <p className="mt-2 text-gray-600">
-            Ürün ekle, düzenle, sil ve fotoğraf yükle.
+            Ürün ekle, düzenle, sil, fotoğraf yükle ve ürün sırasını ayarla.
           </p>
         </div>
 
@@ -331,7 +369,11 @@ export default function AdminPage() {
                   key={`${image}-${index}`}
                   className="overflow-hidden rounded-xl border"
                 >
-                  <img src={image} alt="" className="h-28 w-full object-cover" />
+                  <img
+                    src={image}
+                    alt=""
+                    className="h-28 w-full object-cover"
+                  />
 
                   <button
                     type="button"
@@ -384,13 +426,36 @@ export default function AdminPage() {
           <h2 className="mb-4 text-2xl font-bold text-gray-900">Ürünler</h2>
 
           <div className="grid gap-4">
-            {products.map((product) => (
+            {products.map((product, index) => (
               <div key={product.id} className="rounded-xl border p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h3 className="text-lg font-bold text-gray-900">
-                      {product.name}
+                      {index + 1}. {product.name}
                     </h3>
+                    <div className="mt-2 flex items-center gap-2">
+  <input
+    type="number"
+    value={product.sort_order || 0}
+    onChange={async (e) => {
+      const value = Number(e.target.value);
+
+      await supabase
+        .from("products")
+        .update({
+          sort_order: value,
+        })
+        .eq("id", product.id);
+
+      getProducts();
+    }}
+    className="w-24 rounded-lg border p-2"
+  />
+
+  <span className="text-sm text-gray-500">
+    Sıra
+  </span>
+</div>
 
                     <p className="text-sm text-gray-600">
                       {product.category} | {product.size}
@@ -407,7 +472,23 @@ export default function AdminPage() {
                     )}
                   </div>
 
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => moveProduct(index, "up")}
+                      disabled={index === 0}
+                      className="rounded-lg bg-slate-700 px-3 py-2 font-semibold text-white disabled:opacity-40"
+                    >
+                      Yukarı
+                    </button>
+
+                    <button
+                      onClick={() => moveProduct(index, "down")}
+                      disabled={index === products.length - 1}
+                      className="rounded-lg bg-slate-700 px-3 py-2 font-semibold text-white disabled:opacity-40"
+                    >
+                      Aşağı
+                    </button>
+
                     <button
                       onClick={() => editProduct(product)}
                       className="rounded-lg bg-yellow-500 px-4 py-2 font-semibold text-white"
@@ -425,9 +506,9 @@ export default function AdminPage() {
                 </div>
 
                 <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  {product.images?.map((image, index) => (
+                  {product.images?.map((image, imageIndex) => (
                     <img
-                      key={index}
+                      key={imageIndex}
                       src={image}
                       alt=""
                       className="h-28 w-full rounded-xl object-cover"
