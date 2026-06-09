@@ -13,6 +13,7 @@ type Product = {
   stock: string;
   amount: number;
   images: string[];
+  cover_image: string | null;
   sort_order: number;
 };
 
@@ -23,6 +24,7 @@ export default function AdminPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [selectedPreviews, setSelectedPreviews] = useState<string[]>([]);
 
@@ -33,6 +35,7 @@ export default function AdminPage() {
     stock: "Var",
     amount: 0,
     images: [] as string[],
+    cover_image: "",
   });
 
   useEffect(() => {
@@ -58,11 +61,17 @@ export default function AdminPage() {
     if (authorized) getProducts();
   }, [authorized]);
 
-  function moveArrayItem<T>(array: T[], index: number, direction: "up" | "down") {
+  function moveArrayItem<T>(
+    array: T[],
+    index: number,
+    direction: "up" | "down"
+  ) {
     const targetIndex = direction === "up" ? index - 1 : index + 1;
+
     if (targetIndex < 0 || targetIndex >= array.length) return array;
 
     const newArray = [...array];
+
     [newArray[index], newArray[targetIndex]] = [
       newArray[targetIndex],
       newArray[index],
@@ -71,29 +80,11 @@ export default function AdminPage() {
     return newArray;
   }
 
-  function makeCoverImage(index: number) {
-    const newImages = [...form.images];
-    const selected = newImages.splice(index, 1)[0];
-    newImages.unshift(selected);
-
-    setForm({
-      ...form,
-      images: newImages,
-    });
-  }
-
   function moveExistingImage(index: number, direction: "up" | "down") {
     setForm({
       ...form,
       images: moveArrayItem(form.images, index, direction),
     });
-  }
-
-  function makeNewFileCover(index: number) {
-    const newFiles = [...selectedFiles];
-    const selected = newFiles.splice(index, 1)[0];
-    newFiles.unshift(selected);
-    setSelectedFiles(newFiles);
   }
 
   function moveSelectedFile(index: number, direction: "up" | "down") {
@@ -134,8 +125,9 @@ export default function AdminPage() {
 
     setUploading(true);
 
-    const newImages = await uploadImages();
-    const allImages = [...form.images, ...newImages];
+    const uploadedImages = await uploadImages();
+
+    const allImages = [...form.images, ...uploadedImages];
 
     const nextSortOrder =
       products.length > 0
@@ -149,11 +141,21 @@ export default function AdminPage() {
       stock: form.stock,
       amount: form.amount,
       images: allImages,
-      ...(!editingId ? { sort_order: nextSortOrder } : {}),
+      cover_image:
+        form.cover_image || allImages[0] || null,
+
+      ...(!editingId
+        ? {
+            sort_order: nextSortOrder,
+          }
+        : {}),
     };
 
     const { error } = editingId
-      ? await supabase.from("products").update(productData).eq("id", editingId)
+      ? await supabase
+          .from("products")
+          .update(productData)
+          .eq("id", editingId)
       : await supabase.from("products").insert([productData]);
 
     setUploading(false);
@@ -165,6 +167,7 @@ export default function AdminPage() {
 
     setEditingId(null);
     setSelectedFiles([]);
+
     setForm({
       name: "",
       category: "",
@@ -172,6 +175,7 @@ export default function AdminPage() {
       stock: "Var",
       amount: 0,
       images: [],
+      cover_image: "",
     });
 
     getProducts();
@@ -179,7 +183,6 @@ export default function AdminPage() {
 
   function editProduct(product: Product) {
     setEditingId(product.id);
-    setSelectedFiles([]);
 
     setForm({
       name: product.name,
@@ -188,19 +191,30 @@ export default function AdminPage() {
       stock: product.stock,
       amount: product.amount,
       images: product.images || [],
+      cover_image: product.cover_image || "",
     });
 
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    setSelectedFiles([]);
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
   }
 
   async function removeExistingImage(index: number) {
     const imageUrl = form.images[index];
 
-    const confirmDelete = confirm("Bu fotoğraf tamamen silinsin mi?");
+    const confirmDelete = confirm(
+      "Bu fotoğraf tamamen silinsin mi?"
+    );
+
     if (!confirmDelete) return;
 
     const filePath = imageUrl.includes("/product-images/")
-      ? decodeURIComponent(imageUrl.split("/product-images/")[1])
+      ? decodeURIComponent(
+          imageUrl.split("/product-images/")[1]
+        )
       : "";
 
     if (filePath) {
@@ -209,14 +223,25 @@ export default function AdminPage() {
         .remove([filePath]);
 
       if (error) {
-        alert("Fotoğraf Storage'dan silinemedi: " + error.message);
+        alert(
+          "Fotoğraf Storage'dan silinemedi: " +
+            error.message
+        );
         return;
       }
     }
 
+    const updatedImages = form.images.filter(
+      (_, i) => i !== index
+    );
+
     setForm({
       ...form,
-      images: form.images.filter((_, i) => i !== index),
+      images: updatedImages,
+      cover_image:
+        form.cover_image === imageUrl
+          ? updatedImages[0] || ""
+          : form.cover_image,
     });
   }
 
@@ -229,21 +254,74 @@ export default function AdminPage() {
 
     for (const imageUrl of product.images || []) {
       const filePath = imageUrl.includes("/product-images/")
-        ? decodeURIComponent(imageUrl.split("/product-images/")[1])
+        ? decodeURIComponent(
+            imageUrl.split("/product-images/")[1]
+          )
         : "";
 
       if (!filePath) continue;
 
-      await supabase.storage.from("product-images").remove([filePath]);
+      await supabase.storage
+        .from("product-images")
+        .remove([filePath]);
     }
 
-    await supabase.from("products").delete().eq("id", product.id);
+    await supabase
+      .from("products")
+      .delete()
+      .eq("id", product.id);
+
+    getProducts();
+  }
+
+  async function moveProduct(
+    product: Product,
+    direction: "up" | "down"
+  ) {
+    const sortedProducts = [...products].sort(
+      (a, b) => a.sort_order - b.sort_order
+    );
+
+    const currentIndex = sortedProducts.findIndex(
+      (p) => p.id === product.id
+    );
+
+    const targetIndex =
+      direction === "up"
+        ? currentIndex - 1
+        : currentIndex + 1;
+
+    if (
+      targetIndex < 0 ||
+      targetIndex >= sortedProducts.length
+    )
+      return;
+
+    const currentProduct = sortedProducts[currentIndex];
+    const targetProduct = sortedProducts[targetIndex];
+
+    await supabase
+      .from("products")
+      .update({
+        sort_order: targetProduct.sort_order,
+      })
+      .eq("id", currentProduct.id);
+
+    await supabase
+      .from("products")
+      .update({
+        sort_order: currentProduct.sort_order,
+      })
+      .eq("id", targetProduct.id);
+
     getProducts();
   }
 
   function cancelEdit() {
     setEditingId(null);
+
     setSelectedFiles([]);
+
     setForm({
       name: "",
       category: "",
@@ -251,6 +329,7 @@ export default function AdminPage() {
       stock: "Var",
       amount: 0,
       images: [],
+      cover_image: "",
     });
   }
 
@@ -258,20 +337,27 @@ export default function AdminPage() {
     return (
       <main className="flex min-h-screen items-center justify-center bg-gray-100 p-4">
         <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow">
-          <h1 className="text-2xl font-bold text-gray-900">Admin Girişi</h1>
+          <h1 className="text-2xl font-bold text-gray-900">
+            Admin Girişi
+          </h1>
 
           <input
             type="password"
             placeholder="Şifre"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) =>
+              setPassword(e.target.value)
+            }
             className="mt-5 w-full rounded-xl border p-3"
           />
 
           <button
             onClick={() => {
-              if (password === ADMIN_PASSWORD) setAuthorized(true);
-              else alert("Şifre yanlış");
+              if (password === ADMIN_PASSWORD) {
+                setAuthorized(true);
+              } else {
+                alert("Şifre yanlış");
+              }
             }}
             className="mt-4 w-full rounded-xl bg-blue-600 p-3 font-bold text-white"
           >
@@ -284,11 +370,15 @@ export default function AdminPage() {
 
   return (
     <main className="min-h-screen bg-gray-100 p-4 sm:p-6">
-      <section className="mx-auto max-w-5xl">
+      <section className="mx-auto max-w-6xl">
         <div className="mb-6 rounded-2xl bg-white p-5 shadow">
-          <h1 className="text-3xl font-bold text-gray-900">Admin Paneli</h1>
+          <h1 className="text-3xl font-bold text-gray-900">
+            Atromed Admin Paneli
+          </h1>
+
           <p className="mt-2 text-gray-600">
-            Fotoğrafları sıralayabilir, kapak fotoğrafını seçebilirsin.
+            Ürünleri, sıralamaları ve kapak
+            görsellerini yönet.
           </p>
         </div>
 
@@ -297,31 +387,57 @@ export default function AdminPage() {
             className="rounded-xl border p-3"
             placeholder="Ürün adı"
             value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                name: e.target.value,
+              })
+            }
           />
 
           <select
             className="rounded-xl border p-3"
             value={form.category}
-            onChange={(e) => setForm({ ...form, category: e.target.value })}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                category: e.target.value,
+              })
+            }
           >
             <option value="">Kategori Seç</option>
-            <option value="Travma">Travma</option>
-            <option value="Artroplasti">Artroplasti</option>
-            <option value="Artroskopi">Artroskopi</option>
+            <option value="Travma">
+              Travma
+            </option>
+            <option value="Artroplasti">
+              Artroplasti
+            </option>
+            <option value="Artroskopi">
+              Artroskopi
+            </option>
           </select>
 
           <input
             className="rounded-xl border p-3"
             placeholder="Ölçü"
             value={form.size}
-            onChange={(e) => setForm({ ...form, size: e.target.value })}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                size: e.target.value,
+              })
+            }
           />
 
           <select
             className="rounded-xl border p-3"
             value={form.stock}
-            onChange={(e) => setForm({ ...form, stock: e.target.value })}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                stock: e.target.value,
+              })
+            }
           >
             <option>Var</option>
             <option>Az kaldı</option>
@@ -334,7 +450,10 @@ export default function AdminPage() {
             placeholder="Adet (-1 gizler)"
             value={form.amount}
             onChange={(e) =>
-              setForm({ ...form, amount: Number(e.target.value) })
+              setForm({
+                ...form,
+                amount: Number(e.target.value),
+              })
             }
           />
 
@@ -346,14 +465,17 @@ export default function AdminPage() {
 
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 {form.images.map((image, index) => (
-                  <div key={`${image}-${index}`} className="rounded-xl border">
+                  <div
+                    key={`${image}-${index}`}
+                    className="rounded-xl border"
+                  >
                     <img
                       src={image}
                       alt=""
                       className="h-28 w-full rounded-t-xl object-cover"
                     />
 
-                    {index === 0 && (
+                    {form.cover_image === image && (
                       <div className="bg-blue-600 py-1 text-center text-xs font-bold text-white">
                         Kapak Fotoğrafı
                       </div>
@@ -362,7 +484,12 @@ export default function AdminPage() {
                     <div className="grid gap-1 p-2">
                       <button
                         type="button"
-                        onClick={() => makeCoverImage(index)}
+                        onClick={() =>
+                          setForm({
+                            ...form,
+                            cover_image: image,
+                          })
+                        }
                         className="rounded bg-blue-600 py-1 text-xs font-bold text-white"
                       >
                         Kapak Yap
@@ -371,7 +498,12 @@ export default function AdminPage() {
                       <div className="grid grid-cols-2 gap-1">
                         <button
                           type="button"
-                          onClick={() => moveExistingImage(index, "up")}
+                          onClick={() =>
+                            moveExistingImage(
+                              index,
+                              "up"
+                            )
+                          }
                           className="rounded bg-gray-700 py-1 text-xs font-bold text-white"
                         >
                           ←
@@ -379,7 +511,12 @@ export default function AdminPage() {
 
                         <button
                           type="button"
-                          onClick={() => moveExistingImage(index, "down")}
+                          onClick={() =>
+                            moveExistingImage(
+                              index,
+                              "down"
+                            )
+                          }
                           className="rounded bg-gray-700 py-1 text-xs font-bold text-white"
                         >
                           →
@@ -388,7 +525,11 @@ export default function AdminPage() {
 
                       <button
                         type="button"
-                        onClick={() => removeExistingImage(index)}
+                        onClick={() =>
+                          removeExistingImage(
+                            index
+                          )
+                        }
                         className="rounded bg-red-600 py-1 text-xs font-bold text-white"
                       >
                         Sil
@@ -406,62 +547,77 @@ export default function AdminPage() {
             accept="image/*"
             className="rounded-xl border bg-white p-3"
             onChange={(e) =>
-              setSelectedFiles(Array.from(e.target.files || []))
+              setSelectedFiles(
+                Array.from(
+                  e.target.files || []
+                )
+              )
             }
           />
 
           {selectedPreviews.length > 0 && (
             <div>
               <h3 className="mb-3 font-bold text-gray-900">
-                Yeni Eklenecek Fotoğraflar
+                Yeni Fotoğraflar
               </h3>
 
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                {selectedPreviews.map((image, index) => (
-                  <div key={image} className="rounded-xl border">
-                    <img
-                      src={image}
-                      alt=""
-                      className="h-28 w-full rounded-t-xl object-cover"
-                    />
+                {selectedPreviews.map(
+                  (image, index) => (
+                    <div
+                      key={image}
+                      className="rounded-xl border"
+                    >
+                      <img
+                        src={image}
+                        alt=""
+                        className="h-28 w-full rounded-t-xl object-cover"
+                      />
 
-                    <div className="grid gap-1 p-2">
-                      <button
-                        type="button"
-                        onClick={() => makeNewFileCover(index)}
-                        className="rounded bg-blue-600 py-1 text-xs font-bold text-white"
-                      >
-                        En Başa Al
-                      </button>
+                      <div className="grid gap-1 p-2">
+                        <div className="grid grid-cols-2 gap-1">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              moveSelectedFile(
+                                index,
+                                "up"
+                              )
+                            }
+                            className="rounded bg-gray-700 py-1 text-xs font-bold text-white"
+                          >
+                            ←
+                          </button>
 
-                      <div className="grid grid-cols-2 gap-1">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              moveSelectedFile(
+                                index,
+                                "down"
+                              )
+                            }
+                            className="rounded bg-gray-700 py-1 text-xs font-bold text-white"
+                          >
+                            →
+                          </button>
+                        </div>
+
                         <button
                           type="button"
-                          onClick={() => moveSelectedFile(index, "up")}
-                          className="rounded bg-gray-700 py-1 text-xs font-bold text-white"
+                          onClick={() =>
+                            removeSelectedFile(
+                              index
+                            )
+                          }
+                          className="rounded bg-red-600 py-1 text-xs font-bold text-white"
                         >
-                          ←
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => moveSelectedFile(index, "down")}
-                          className="rounded bg-gray-700 py-1 text-xs font-bold text-white"
-                        >
-                          →
+                          Kaldır
                         </button>
                       </div>
-
-                      <button
-                        type="button"
-                        onClick={() => removeSelectedFile(index)}
-                        className="rounded bg-red-600 py-1 text-xs font-bold text-white"
-                      >
-                        Kaldır
-                      </button>
                     </div>
-                  </div>
-                ))}
+                  )
+                )}
               </div>
             </div>
           )}
@@ -492,11 +648,16 @@ export default function AdminPage() {
         </div>
 
         <div className="rounded-2xl bg-white p-5 shadow">
-          <h2 className="mb-4 text-2xl font-bold text-gray-900">Ürünler</h2>
+          <h2 className="mb-4 text-2xl font-bold text-gray-900">
+            Ürünler
+          </h2>
 
           <div className="grid gap-4">
             {products.map((product) => (
-              <div key={product.id} className="rounded-xl border p-4">
+              <div
+                key={product.id}
+                className="rounded-xl border p-4"
+              >
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h3 className="text-lg font-bold text-gray-900">
@@ -504,20 +665,49 @@ export default function AdminPage() {
                     </h3>
 
                     <p className="text-sm text-gray-600">
-                      {product.category} | {product.size}
+                      {product.category} |{" "}
+                      {product.size}
                     </p>
                   </div>
 
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <button
-                      onClick={() => editProduct(product)}
+                      onClick={() =>
+                        moveProduct(
+                          product,
+                          "up"
+                        )
+                      }
+                      className="rounded-lg bg-gray-700 px-3 py-2 font-semibold text-white"
+                    >
+                      ↑
+                    </button>
+
+                    <button
+                      onClick={() =>
+                        moveProduct(
+                          product,
+                          "down"
+                        )
+                      }
+                      className="rounded-lg bg-gray-700 px-3 py-2 font-semibold text-white"
+                    >
+                      ↓
+                    </button>
+
+                    <button
+                      onClick={() =>
+                        editProduct(product)
+                      }
                       className="rounded-lg bg-yellow-500 px-4 py-2 font-semibold text-white"
                     >
                       Düzenle
                     </button>
 
                     <button
-                      onClick={() => deleteProduct(product)}
+                      onClick={() =>
+                        deleteProduct(product)
+                      }
                       className="rounded-lg bg-red-600 px-4 py-2 font-semibold text-white"
                     >
                       Sil
@@ -526,16 +716,32 @@ export default function AdminPage() {
                 </div>
 
                 <div className="mt-4 flex gap-2 overflow-x-auto">
-                  {product.images?.map((image, index) => (
-                    <img
-                      key={index}
-                      src={image}
-                      alt=""
-                      className={`h-20 w-20 rounded-lg object-cover ${
-                        index === 0 ? "ring-4 ring-blue-500" : ""
-                      }`}
-                    />
-                  ))}
+                  {product.images?.map(
+                    (image, index) => (
+                      <div
+                        key={index}
+                        className="relative"
+                      >
+                        <img
+                          src={image}
+                          alt=""
+                          className={`h-20 w-20 rounded-lg object-cover ${
+                            product.cover_image ===
+                            image
+                              ? "ring-4 ring-blue-500"
+                              : ""
+                          }`}
+                        />
+
+                        {product.cover_image ===
+                          image && (
+                          <div className="absolute bottom-1 left-1 rounded bg-blue-600 px-1 text-[10px] font-bold text-white">
+                            Kapak
+                          </div>
+                        )}
+                      </div>
+                    )
+                  )}
                 </div>
               </div>
             ))}

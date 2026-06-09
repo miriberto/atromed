@@ -13,6 +13,7 @@ type Product = {
   stock: string;
   amount: number;
   images: string[];
+  cover_image: string | null;
 };
 
 export default function Home() {
@@ -95,7 +96,7 @@ export default function Home() {
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {filteredProducts.map((product) => {
-              const previewImage = product.images?.[0] || "/foto1.jpg";
+              const previewImage = product.cover_image || product.images?.[0] || "/foto1.jpg";
 
               return (
                 <Link
