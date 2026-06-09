@@ -14,6 +14,7 @@ type Product = {
   stock: string;
   amount: number;
   images: string[];
+  description: string | null;
 };
 
 export default function ProductDetail() {
@@ -44,6 +45,7 @@ export default function ProductDetail() {
       <main className="min-h-screen bg-gray-100 p-6">
         <div className="mx-auto max-w-4xl rounded-2xl bg-white p-8 shadow">
           <h1 className="text-2xl font-bold text-gray-900">Ürün bulunamadı</h1>
+
           <Link href="/" className="mt-4 inline-block text-blue-600">
             Ana sayfaya dön
           </Link>
@@ -67,46 +69,82 @@ export default function ProductDetail() {
   return (
     <main className="min-h-screen bg-gray-100 px-3 py-4 sm:p-6">
       <section className="mx-auto max-w-6xl">
-        <Link href="/" className="mb-4 inline-block text-sm font-semibold text-blue-600">
+        <Link
+          href="/"
+          className="mb-4 inline-block text-sm font-semibold text-blue-600"
+        >
           Ana sayfaya dön
         </Link>
 
         <div className="rounded-2xl bg-white p-5 shadow sm:p-8">
-          <p className="text-sm font-semibold text-blue-600">{product.category}</p>
+          <p className="text-sm font-semibold text-blue-600">
+            {product.category}
+          </p>
 
           <h1 className="mt-2 text-2xl font-bold text-gray-900 sm:text-3xl">
             {product.name}
           </h1>
 
           <div className="mt-5 flex flex-wrap gap-2 sm:gap-4">
-            <span className="rounded-full bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-700">
-              Ölçü: {product.size}
-            </span>
+            {product.size && (
+              <span className="rounded-full bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-700">
+                Ölçü: {product.size}
+              </span>
+            )}
 
-            <span className="rounded-full bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-700">
-              Adet: {product.amount}
-            </span>
+            {product.amount !== -1 && (
+              <span className="rounded-full bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-700">
+                Adet: {product.amount}
+              </span>
+            )}
 
-            <span className="rounded-full bg-green-100 px-3 py-2 text-sm font-semibold text-green-700">
+            <span
+              className={`rounded-full px-3 py-2 text-sm font-semibold ${
+                product.stock === "Var"
+                  ? "bg-green-100 text-green-700"
+                  : product.stock === "Az kaldı"
+                  ? "bg-yellow-100 text-yellow-700"
+                  : "bg-red-100 text-red-700"
+              }`}
+            >
               {product.stock}
             </span>
           </div>
 
-          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {images.map((image, index) => (
-              <div
-                key={`${image}-${index}`}
-                onClick={() => setSelectedIndex(index)}
-                className="relative h-64 cursor-pointer overflow-hidden rounded-2xl bg-gray-200 sm:h-72"
-              >
-                <Image src={image} alt={product.name} fill className="object-cover" />
-              </div>
-            ))}
-          </div>
+          {product.description && product.description.trim() !== "" && (
+            <div className="mt-6 rounded-2xl bg-gray-50 p-5">
+              <h2 className="text-lg font-bold text-gray-900">
+                Ürün Açıklaması
+              </h2>
+
+              <p className="mt-2 whitespace-pre-line text-gray-700">
+                {product.description}
+              </p>
+            </div>
+          )}
+
+          {images.length > 0 && (
+            <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {images.map((image, index) => (
+                <div
+                  key={`${image}-${index}`}
+                  onClick={() => setSelectedIndex(index)}
+                  className="relative h-64 cursor-pointer overflow-hidden rounded-2xl bg-gray-200 sm:h-72"
+                >
+                  <Image
+                    src={image}
+                    alt={product.name}
+                    fill
+                    className="object-cover"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
-      {selectedIndex !== null && (
+      {selectedIndex !== null && images.length > 0 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-3">
           <button
             onClick={() => setSelectedIndex(null)}
