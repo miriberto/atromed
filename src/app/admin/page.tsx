@@ -24,6 +24,7 @@ export default function AdminPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [selectedPreviews, setSelectedPreviews] = useState<string[]>([]);
 
   const [form, setForm] = useState({
     name: "",
@@ -33,6 +34,15 @@ export default function AdminPage() {
     amount: 0,
     images: [] as string[],
   });
+
+  useEffect(() => {
+    const urls = selectedFiles.map((file) => URL.createObjectURL(file));
+    setSelectedPreviews(urls);
+
+    return () => {
+      urls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [selectedFiles]);
 
   async function getProducts() {
     const { data } = await supabase
@@ -47,6 +57,52 @@ export default function AdminPage() {
   useEffect(() => {
     if (authorized) getProducts();
   }, [authorized]);
+
+  function moveArrayItem<T>(array: T[], index: number, direction: "up" | "down") {
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= array.length) return array;
+
+    const newArray = [...array];
+    [newArray[index], newArray[targetIndex]] = [
+      newArray[targetIndex],
+      newArray[index],
+    ];
+
+    return newArray;
+  }
+
+  function makeCoverImage(index: number) {
+    const newImages = [...form.images];
+    const selected = newImages.splice(index, 1)[0];
+    newImages.unshift(selected);
+
+    setForm({
+      ...form,
+      images: newImages,
+    });
+  }
+
+  function moveExistingImage(index: number, direction: "up" | "down") {
+    setForm({
+      ...form,
+      images: moveArrayItem(form.images, index, direction),
+    });
+  }
+
+  function makeNewFileCover(index: number) {
+    const newFiles = [...selectedFiles];
+    const selected = newFiles.splice(index, 1)[0];
+    newFiles.unshift(selected);
+    setSelectedFiles(newFiles);
+  }
+
+  function moveSelectedFile(index: number, direction: "up" | "down") {
+    setSelectedFiles(moveArrayItem(selectedFiles, index, direction));
+  }
+
+  function removeSelectedFile(index: number) {
+    setSelectedFiles(selectedFiles.filter((_, i) => i !== index));
+  }
 
   async function uploadImages() {
     const imageUrls: string[] = [];
@@ -109,7 +165,6 @@ export default function AdminPage() {
 
     setEditingId(null);
     setSelectedFiles([]);
-
     setForm({
       name: "",
       category: "",
@@ -124,6 +179,7 @@ export default function AdminPage() {
 
   function editProduct(product: Product) {
     setEditingId(product.id);
+    setSelectedFiles([]);
 
     setForm({
       name: product.name,
@@ -134,76 +190,7 @@ export default function AdminPage() {
       images: product.images || [],
     });
 
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
-  }
-
-  async function moveProduct(index: number, direction: "up" | "down") {
-    const targetIndex = direction === "up" ? index - 1 : index + 1;
-
-    if (targetIndex < 0 || targetIndex >= products.length) return;
-
-    const currentProduct = products[index];
-    const targetProduct = products[targetIndex];
-
-    const currentOrder = currentProduct.sort_order || index + 1;
-    const targetOrder = targetProduct.sort_order || targetIndex + 1;
-
-    const newProducts = [...products];
-    newProducts[index] = {
-      ...targetProduct,
-      sort_order: currentOrder,
-    };
-    newProducts[targetIndex] = {
-      ...currentProduct,
-      sort_order: targetOrder,
-    };
-
-    setProducts(newProducts);
-
-    await supabase
-      .from("products")
-      .update({ sort_order: targetOrder })
-      .eq("id", currentProduct.id);
-
-    await supabase
-      .from("products")
-      .update({ sort_order: currentOrder })
-      .eq("id", targetProduct.id);
-
-    getProducts();
-  }
-
-  async function deleteProduct(product: Product) {
-    const confirmDelete = confirm(
-      `"${product.name}" ürünü ve fotoğrafları silinsin mi?`
-    );
-
-    if (!confirmDelete) return;
-
-    for (const imageUrl of product.images || []) {
-      const filePath = imageUrl.includes("/product-images/")
-        ? decodeURIComponent(imageUrl.split("/product-images/")[1])
-        : "";
-
-      if (!filePath) continue;
-
-      await supabase.storage.from("product-images").remove([filePath]);
-    }
-
-    const { error } = await supabase
-      .from("products")
-      .delete()
-      .eq("id", product.id);
-
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
-    getProducts();
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function removeExistingImage(index: number) {
@@ -233,10 +220,30 @@ export default function AdminPage() {
     });
   }
 
+  async function deleteProduct(product: Product) {
+    const confirmDelete = confirm(
+      `"${product.name}" ürünü ve fotoğrafları silinsin mi?`
+    );
+
+    if (!confirmDelete) return;
+
+    for (const imageUrl of product.images || []) {
+      const filePath = imageUrl.includes("/product-images/")
+        ? decodeURIComponent(imageUrl.split("/product-images/")[1])
+        : "";
+
+      if (!filePath) continue;
+
+      await supabase.storage.from("product-images").remove([filePath]);
+    }
+
+    await supabase.from("products").delete().eq("id", product.id);
+    getProducts();
+  }
+
   function cancelEdit() {
     setEditingId(null);
     setSelectedFiles([]);
-
     setForm({
       name: "",
       category: "",
@@ -253,8 +260,6 @@ export default function AdminPage() {
         <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow">
           <h1 className="text-2xl font-bold text-gray-900">Admin Girişi</h1>
 
-          <p className="mt-2 text-gray-600">Devam etmek için şifre gir.</p>
-
           <input
             type="password"
             placeholder="Şifre"
@@ -265,11 +270,8 @@ export default function AdminPage() {
 
           <button
             onClick={() => {
-              if (password === ADMIN_PASSWORD) {
-                setAuthorized(true);
-              } else {
-                alert("Şifre yanlış");
-              }
+              if (password === ADMIN_PASSWORD) setAuthorized(true);
+              else alert("Şifre yanlış");
             }}
             className="mt-4 w-full rounded-xl bg-blue-600 p-3 font-bold text-white"
           >
@@ -284,12 +286,9 @@ export default function AdminPage() {
     <main className="min-h-screen bg-gray-100 p-4 sm:p-6">
       <section className="mx-auto max-w-5xl">
         <div className="mb-6 rounded-2xl bg-white p-5 shadow">
-          <h1 className="text-3xl font-bold text-gray-900">
-            Supabase Admin Paneli
-          </h1>
-
+          <h1 className="text-3xl font-bold text-gray-900">Admin Paneli</h1>
           <p className="mt-2 text-gray-600">
-            Ürün ekle, düzenle, sil, fotoğraf yükle ve ürün sırasını ayarla.
+            Fotoğrafları sıralayabilir, kapak fotoğrafını seçebilirsin.
           </p>
         </div>
 
@@ -298,23 +297,13 @@ export default function AdminPage() {
             className="rounded-xl border p-3"
             placeholder="Ürün adı"
             value={form.name}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                name: e.target.value,
-              })
-            }
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
           />
 
           <select
             className="rounded-xl border p-3"
             value={form.category}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                category: e.target.value,
-              })
-            }
+            onChange={(e) => setForm({ ...form, category: e.target.value })}
           >
             <option value="">Kategori Seç</option>
             <option value="Travma">Travma</option>
@@ -326,23 +315,13 @@ export default function AdminPage() {
             className="rounded-xl border p-3"
             placeholder="Ölçü"
             value={form.size}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                size: e.target.value,
-              })
-            }
+            onChange={(e) => setForm({ ...form, size: e.target.value })}
           />
 
           <select
             className="rounded-xl border p-3"
             value={form.stock}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                stock: e.target.value,
-              })
-            }
+            onChange={(e) => setForm({ ...form, stock: e.target.value })}
           >
             <option>Var</option>
             <option>Az kaldı</option>
@@ -355,35 +334,69 @@ export default function AdminPage() {
             placeholder="Adet (-1 gizler)"
             value={form.amount}
             onChange={(e) =>
-              setForm({
-                ...form,
-                amount: Number(e.target.value),
-              })
+              setForm({ ...form, amount: Number(e.target.value) })
             }
           />
 
           {form.images.length > 0 && (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {form.images.map((image, index) => (
-                <div
-                  key={`${image}-${index}`}
-                  className="overflow-hidden rounded-xl border"
-                >
-                  <img
-                    src={image}
-                    alt=""
-                    className="h-28 w-full object-cover"
-                  />
+            <div>
+              <h3 className="mb-3 font-bold text-gray-900">
+                Mevcut Fotoğraflar
+              </h3>
 
-                  <button
-                    type="button"
-                    onClick={() => removeExistingImage(index)}
-                    className="w-full bg-red-600 py-2 text-sm font-bold text-white"
-                  >
-                    Fotoğrafı Kaldır
-                  </button>
-                </div>
-              ))}
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {form.images.map((image, index) => (
+                  <div key={`${image}-${index}`} className="rounded-xl border">
+                    <img
+                      src={image}
+                      alt=""
+                      className="h-28 w-full rounded-t-xl object-cover"
+                    />
+
+                    {index === 0 && (
+                      <div className="bg-blue-600 py-1 text-center text-xs font-bold text-white">
+                        Kapak Fotoğrafı
+                      </div>
+                    )}
+
+                    <div className="grid gap-1 p-2">
+                      <button
+                        type="button"
+                        onClick={() => makeCoverImage(index)}
+                        className="rounded bg-blue-600 py-1 text-xs font-bold text-white"
+                      >
+                        Kapak Yap
+                      </button>
+
+                      <div className="grid grid-cols-2 gap-1">
+                        <button
+                          type="button"
+                          onClick={() => moveExistingImage(index, "up")}
+                          className="rounded bg-gray-700 py-1 text-xs font-bold text-white"
+                        >
+                          ←
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => moveExistingImage(index, "down")}
+                          className="rounded bg-gray-700 py-1 text-xs font-bold text-white"
+                        >
+                          →
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => removeExistingImage(index)}
+                        className="rounded bg-red-600 py-1 text-xs font-bold text-white"
+                      >
+                        Sil
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -397,11 +410,67 @@ export default function AdminPage() {
             }
           />
 
+          {selectedPreviews.length > 0 && (
+            <div>
+              <h3 className="mb-3 font-bold text-gray-900">
+                Yeni Eklenecek Fotoğraflar
+              </h3>
+
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {selectedPreviews.map((image, index) => (
+                  <div key={image} className="rounded-xl border">
+                    <img
+                      src={image}
+                      alt=""
+                      className="h-28 w-full rounded-t-xl object-cover"
+                    />
+
+                    <div className="grid gap-1 p-2">
+                      <button
+                        type="button"
+                        onClick={() => makeNewFileCover(index)}
+                        className="rounded bg-blue-600 py-1 text-xs font-bold text-white"
+                      >
+                        En Başa Al
+                      </button>
+
+                      <div className="grid grid-cols-2 gap-1">
+                        <button
+                          type="button"
+                          onClick={() => moveSelectedFile(index, "up")}
+                          className="rounded bg-gray-700 py-1 text-xs font-bold text-white"
+                        >
+                          ←
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => moveSelectedFile(index, "down")}
+                          className="rounded bg-gray-700 py-1 text-xs font-bold text-white"
+                        >
+                          →
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => removeSelectedFile(index)}
+                        className="rounded bg-red-600 py-1 text-xs font-bold text-white"
+                      >
+                        Kaldır
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="grid gap-3 sm:grid-cols-2">
             <button
               onClick={addOrUpdateProduct}
               disabled={uploading}
-              className="rounded-xl bg-blue-600 p-3 font-bold text-white hover:bg-blue-700 disabled:opacity-50"
+              className="rounded-xl bg-blue-600 p-3 font-bold text-white disabled:opacity-50"
             >
               {uploading
                 ? "Yükleniyor..."
@@ -426,69 +495,20 @@ export default function AdminPage() {
           <h2 className="mb-4 text-2xl font-bold text-gray-900">Ürünler</h2>
 
           <div className="grid gap-4">
-            {products.map((product, index) => (
+            {products.map((product) => (
               <div key={product.id} className="rounded-xl border p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h3 className="text-lg font-bold text-gray-900">
-                      {index + 1}. {product.name}
+                      {product.name}
                     </h3>
-                    <div className="mt-2 flex items-center gap-2">
-  <input
-    type="number"
-    value={product.sort_order || 0}
-    onChange={async (e) => {
-      const value = Number(e.target.value);
-
-      await supabase
-        .from("products")
-        .update({
-          sort_order: value,
-        })
-        .eq("id", product.id);
-
-      getProducts();
-    }}
-    className="w-24 rounded-lg border p-2"
-  />
-
-  <span className="text-sm text-gray-500">
-    Sıra
-  </span>
-</div>
 
                     <p className="text-sm text-gray-600">
                       {product.category} | {product.size}
                     </p>
-
-                    {product.amount !== -1 ? (
-                      <p className="mt-1 text-sm text-gray-600">
-                        {product.stock} | Adet: {product.amount}
-                      </p>
-                    ) : (
-                      <p className="mt-1 text-sm text-gray-600">
-                        {product.stock}
-                      </p>
-                    )}
                   </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={() => moveProduct(index, "up")}
-                      disabled={index === 0}
-                      className="rounded-lg bg-slate-700 px-3 py-2 font-semibold text-white disabled:opacity-40"
-                    >
-                      Yukarı
-                    </button>
-
-                    <button
-                      onClick={() => moveProduct(index, "down")}
-                      disabled={index === products.length - 1}
-                      className="rounded-lg bg-slate-700 px-3 py-2 font-semibold text-white disabled:opacity-40"
-                    >
-                      Aşağı
-                    </button>
-
+                  <div className="flex gap-2">
                     <button
                       onClick={() => editProduct(product)}
                       className="rounded-lg bg-yellow-500 px-4 py-2 font-semibold text-white"
@@ -505,13 +525,15 @@ export default function AdminPage() {
                   </div>
                 </div>
 
-                <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  {product.images?.map((image, imageIndex) => (
+                <div className="mt-4 flex gap-2 overflow-x-auto">
+                  {product.images?.map((image, index) => (
                     <img
-                      key={imageIndex}
+                      key={index}
                       src={image}
                       alt=""
-                      className="h-28 w-full rounded-xl object-cover"
+                      className={`h-20 w-20 rounded-lg object-cover ${
+                        index === 0 ? "ring-4 ring-blue-500" : ""
+                      }`}
                     />
                   ))}
                 </div>
